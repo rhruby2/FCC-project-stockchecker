@@ -1,9 +1,9 @@
 const mongoose = require('mongoose')
 
-module.exports = function (app) {
+module.exports = function () {
 
 const StockSchema = new mongoose.Schema({
-    stock: {
+    name: {
         type: String,
         required: [true, "Stock name is not provided, yet required"]
     },
@@ -15,7 +15,7 @@ const StockSchema = new mongoose.Schema({
 
 const Stock = mongoose.model('stock', StockSchema);
 
-/*  stocks may contain millions of likes, and it is more probable
+/*  It is more probable
     that users have liked less stocks than stocks recieved likes,
     therefore, for the purpose of scanning for duplicate likes, users will recieve a list of liked stocks,
     instead of stocks containing an array of all users that liked it 
@@ -25,7 +25,10 @@ const UserSchema = new mongoose.Schema({
         type: String,
         required: [true, "IP is not provided, yet required"]
     },
-    likedStocksId: [String]
+    likedStocks: {
+        type: [String],
+        default: []
+    }
 });
 
 const User = mongoose.model('user', UserSchema);
