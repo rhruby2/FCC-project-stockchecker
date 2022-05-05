@@ -11,6 +11,24 @@ const stockPriceProxyURL = "https://stock-price-checker-proxy.freecodecamp.rocks
 
 
 /**
+ * converts stockNames into correct and iterable format
+ * @param {String || [String]} stockNames 
+ * @returns [String] stockNames
+ */
+const cleanUpStockNames = (stockNames) => {
+  //wrap stockNames into an array
+  stockNames = (Array.isArray(stockNames)) ? stockNames : new Array(stockNames);
+  //ignore stockNames greater than 2
+  if(stockNames.length > 2){
+    stockNames = stockNames.slice(0,3);
+  }
+  stockNames = stockNames.map((stockName) => {
+    return stockName.toUpperCase();
+  })
+  return stockNames;
+}
+
+/**
  * 
  * @param {String} stockName 
  * @returns Stock document
@@ -39,41 +57,6 @@ const getStocks = async(stockNames) => {
 }
 
 /**
- * @description makes api calls to get the stock prices
- * @param {String} stock 
- * @returns Number
- */
- const fetchStockPrice = async (stock) => {
-  let url = stockPriceProxyURL.replace("[symbol]",stock)
-  
-  const response = await fetch(url)
-  const data = await response.json()
-  
-  //console.log(data)
-  
-  return data.latestPrice;
-}
-
-/**
- * @description generalized function to get stock data from 1 to n stocks
- * @param {[Stock]} stocks
- * @returns {[Object]}
- */
-const constructStockData = async (stocks) => {
-    const stockData = stocks.map(async (stock) => {           
-      const stockPrice = await fetchStockPrice(stock.name);
-
-      return {
-        stock: stock.name,
-        price: stockPrice,
-        likes: stock.likes
-      }
-    });
-
-    return await Promise.all(stockData)
-}
-
-/**
  * 
  * @param {String} ip User's IP Address
  * @returns User document
@@ -82,11 +65,19 @@ const findOrCreateUser = async (ip) => {
   const saltRounds = 10;
   const users = await User.find();
   //compare hashed passwords to current user ip
+  //  Array.find() returns first element found, which might be slightly faster than Array.filter()
+  //  given that there should only be one match
+  /*
   const user = users.filter(async (user) => {
     return await bcrypt.compare(ip, user.ip);
   })
+  */
+  const user = users.find(async (user) => {
+    await bcrypt.compare(ip, user.ip);
+  });
 
-  return await Promise.all(user) || User.create({"ip": bcrypt.hashSync(ip, saltRounds )})
+
+  return user || await User.create({"ip": bcrypt.hashSync(ip, saltRounds )})
 }
 
 /**
@@ -96,43 +87,102 @@ const findOrCreateUser = async (ip) => {
  * @param {[Stock]} stocks 
  */
 const setStockLikes = async (req, stocks) => {
-  let ip = req.header('x-forwarded-for') || req.connection.remoteAddress;
+  console.log("SET STOCK LIKES ()");
 
-  if(req.query.like){
-    const user = findOrCreateUser(ip);
-    stocks.map( async (stock) => {
+  if(req.query.like === "true"){
+    console.log("-- like")
+    const ip = req.header('x-forwarded-for') || req.connection.remoteAddress;
+    const user = await findOrCreateUser(ip);
 
-    })
+    const updatedStocks = stocks.map((stock) => {
+      if(!user.likedStocks.includes(stock.name)){
+        //add to user liked stocks
+        user.likedStocks.push(stock.name)
+        //increment Stock document likes
+        stock.likes += 1;
+      }
+      return stock;
+    });
+    console.log("---UPDATED STOCKS:")
+    console.log(updatedStocks);
+    Stock.create(updatedStocks);
+    user.save();
+    return updatedStocks;
   }
+
+  console.log("-- returning stocks ()");
+  return stocks;
+}
+
+/**
+ * @description makes api calls to get the stock prices
+ * @param {String} stock 
+ * @returns Number
+ */
+ const fetchStockPrice = async (stock) => {
+  let url = stockPriceProxyURL.replace("[symbol]",stock)
+  
+  const response = await fetch(url)
+  const data = await response.json()
+
+  return data.latestPrice;
+}
+
+/**
+ * @description generalized function to get stock data from 1 to n stocks
+ * @param {[Stock]} stocks
+ * @returns {[Object]}
+ */
+const constructStockData = async (stocks) => {
+  console.log("CONSTRUCT STOCK DATA")
+  console.log(stocks);
+  const stockData = stocks.map(async (stock) => {           
+    const stockPrice = await fetchStockPrice(stock.name);
+
+    return {
+      stock: stock.name,
+      price: stockPrice,
+      likes: stock.likes
+    }
+  });
+
+  return await Promise.all(stockData);
 }
 
 /**
  * changes "like" property to "rel-likes" (relative likes) property if comparing stocks
- * @param {[Stock]} stocks 
+ * @param {[Object]} stockData
+ * @returns {[Object]} stockData
  */
-const getRelativeLikes = (stocks) => {
-  //placeholder
-  return stocks
+ const setRelativeLikes = (stockData) => {
+  if(stockData.length > 1){
+    stockData[0]["rel-likes"] = stockData[0].likes - stockData[1].likes;
+    stockData[1]["rel-likes"] = stockData[1].likes - stockData[0].likes;
+
+    delete stockData[0].likes;
+    delete stockData[1].likes;
+  }
+  return stockData
 }
 
 app.route('/api/stock-prices')
   .get(function (req, res){
-    //convert input into an array, if one does not exist already
-    let stockNames = (Array.isArray(req.query.stock)) ? req.query.stock : new Array(req.query.stock);
-    
+    let stockNames = cleanUpStockNames(req.query.stock);
+
     getStocks(stockNames)
-      .then((stocks) => { setStockLikes(req, stocks) })
-      .then((stocks) => { getRelativeLikes(stocks) })
-      .then((stocks) => { constructStockData(stocks) })
-      .then((stocks) => {
+      .then((stocks) => setStockLikes(req, stocks))
+      .then((stocks) => constructStockData(stocks))
+      .then((stockData) => setRelativeLikes(stockData))
+      .then((stockData) => {
         //unwrap array if there is only one stock
-        return stocks.length === 1 ? stocks[0] : stocks
+        return stockData.length === 1 ? stockData[0] : stockData
       })
-      .then(stocks => res.json(
+      .then(stockData => res.json(
         {
-          "stockData": stocks
+          "stockData": stockData
         }
-      ));
+      ))
+      .catch((err) => console.log(err));
   });
     
 };
