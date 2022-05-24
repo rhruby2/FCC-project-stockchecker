@@ -12,7 +12,14 @@ const runner            = require('./test-runner');
 
 const app = express();
 
-//app.use(helmet.contentSecurityPolicy());
+app.use(
+  helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc:["'self'"],
+      scriptSrc: ["'self'"]
+    }
+  }));
 
 app.use('/public', express.static(process.cwd() + '/public'));
 

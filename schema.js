@@ -21,7 +21,7 @@ const Stock = mongoose.model('stock', StockSchema);
 const UserSchema = new mongoose.Schema({
     ip: {
         type: String,
-        required: [true, "IP is not provided, yet required"]
+        required: [true, "IP is not provided, yet required (should be hashed first"]
     },
     likedStocks: {
         type: [String],
